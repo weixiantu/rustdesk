@@ -42,6 +42,18 @@ Future<void> main(List<String> args) async {
   earlyAssert();
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Set default server for ZowinDesk (only if not already configured)
+  try {
+    final currentServer = await bind.mainGetOption(key: 'custom-rendezvous-server');
+    if (currentServer == null || currentServer.isEmpty) {
+      await bind.mainSetOption(key: 'custom-rendezvous-server', value: '43.139.157.84');
+      await bind.mainSetOption(key: 'relay-server', value: '43.139.157.84');
+      await bind.mainSetOption(key: 'key', value: 'PMEoK7kHVXLlHB4td8wk13ezTwKABynXQucZURTZtuo=');
+    }
+  } catch (e) {
+    debugPrint('Failed to set default server: $e');
+  }
+
   debugPrint("launch args: $args");
   kBootArgs = List.from(args);
 
