@@ -27,15 +27,29 @@ jobs:
       with:
         cmakeVersion: 3.28.0
 
-    - name: Install LLVM
-      run: choco install llvm --version=17.0.6 -y --no-progress
-      shell: pwsh
-
-    - name: Set LIBCLANG_PATH
+    - name: Set LIBCLANG_PATH (use pre-installed LLVM)
       run: |
-        $llvmPath = "C:\Program Files\LLVM\bin"
-        echo "LIBCLANG_PATH=$llvmPath\libclang.dll" >> $env:GITHUB_ENV
-        echo "$llvmPath" >> $env:GITHUB_PATH
+        # Windows-2022 runner already has LLVM 20.1.8 installed
+        $llvmPaths = @(
+          "C:\Program Files\LLVM\bin",
+          "C:\Program Files (x86)\LLVM\bin",
+          "C:\ProgramData\chocolatey\lib\llvm\tools\llvm\bin"
+        )
+        $found = $false
+        foreach ($p in $llvmPaths) {
+          if (Test-Path "$p\libclang.dll") {
+            echo "LIBCLANG_PATH=$p\libclang.dll" >> $env:GITHUB_ENV
+            echo "$p" >> $env:GITHUB_PATH
+            echo "Found libclang.dll at $p"
+            $found = $true
+            break
+          }
+        }
+        if (-not $found) {
+          echo "ERROR: libclang.dll not found!"
+          Get-ChildItem "C:\Program Files\LLVM" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | Select-Object -First 10 FullName
+          exit 1
+        }
       shell: pwsh
 
     - name: Setup vcpkg
