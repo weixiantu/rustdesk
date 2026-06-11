@@ -68,6 +68,16 @@ jobs:
       shell: pwsh
       timeout-minutes: 10
 
+    - name: Install yasm (required by libvpx)
+      run: |
+        # yasm is required to build libvpx
+        choco install yasm -y --no-progress
+        $yasmPath = "C:\ProgramData\chocolatey\bin"
+        echo "$yasmPath" >> $env:GITHUB_PATH
+        echo "Installed yasm at $yasmPath"
+      shell: pwsh
+      timeout-minutes: 5
+
     - name: Install vcpkg dependencies
       run: |
         # RustDesk uses vcpkg.json manifest mode.
