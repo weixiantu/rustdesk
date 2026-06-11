@@ -5,12 +5,24 @@ on:
     branches: [ zowindesk, master ]
   workflow_dispatch:
 
+env:
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  LLVM_VERSION: "15.0.6"
+
 jobs:
   build-windows:
     runs-on: windows-2022
     timeout-minutes: 360
 
     steps:
+    - name: Export GitHub Actions cache environment variables
+      uses: actions/github-script@v7
+      with:
+        script: |
+          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
     - name: Checkout code
       uses: actions/checkout@v4
       with:
@@ -22,78 +34,57 @@ jobs:
       with:
         targets: x86_64-pc-windows-msvc
 
-    - name: Install CMake
-      uses: lukka/get-cmake@latest
+    - name: Install LLVM and Clang
+      uses: KyleMayes/install-llvm-action@v1
       with:
-        cmakeVersion: 3.28.0
+        version: ${{ env.LLVM_VERSION }}
 
-    - name: Setup LLVM and libclang
+    - name: Set LIBCLANG_PATH
       run: |
-        $llvmPaths = @(
-          "C:\Program Files\LLVM\bin",
-          "C:\Program Files (x86)\LLVM\bin",
-          "C:\ProgramData\chocolatey\lib\llvm\tools\llvm\bin"
-        )
-        $found = $false
-        foreach ($p in $llvmPaths) {
-          if (Test-Path "$p\libclang.dll") {
-            echo "LIBCLANG_PATH=$p\libclang.dll" >> $env:GITHUB_ENV
-            echo "$p" >> $env:GITHUB_PATH
-            echo "Found libclang.dll at $p"
-            $found = $true
-            break
-          }
-        }
-        if (-not $found) {
-          echo "ERROR: libclang.dll not found!"
+        $llvmPath = "${env:LLVM_PATH}\bin"
+        if (Test-Path "$llvmPath\libclang.dll") {
+          echo "LIBCLANG_PATH=$llvmPath\libclang.dll" >> $env:GITHUB_ENV
+          echo "$llvmPath" >> $env:GITHUB_PATH
+          echo "Found libclang.dll at $llvmPath"
+        } else {
+          echo "ERROR: libclang.dll not found at $llvmPath"
           exit 1
         }
       shell: pwsh
 
-    - name: Setup vcpkg
-      run: |
-        # vcpkg is pre-installed on windows-2022 runner at C:\vcpkg
-        $vcpkgRoot = "C:\vcpkg"
-        if (-not (Test-Path "$vcpkgRoot\vcpkg.exe")) {
-          echo "ERROR: vcpkg.exe not found at $vcpkgRoot"
-          exit 1
-        }
-        echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
-        echo "$vcpkgRoot" >> $env:GITHUB_PATH
-        echo "Using vcpkg at $vcpkgRoot"
-        # Ensure vcpkg is up to date
-        cd $vcpkgRoot
-        git pull
-        .\bootstrap-vcpkg.bat -disableMetrics
-      shell: pwsh
-      timeout-minutes: 10
-
-    - name: Install yasm (required by libvpx)
-      run: |
-        # yasm is required to build libvpx
-        choco install yasm -y --no-progress
-        $yasmPath = "C:\ProgramData\chocolatey\bin"
-        echo "$yasmPath" >> $env:GITHUB_PATH
-        echo "Installed yasm at $yasmPath"
-      shell: pwsh
-      timeout-minutes: 5
+    - name: Setup vcpkg with Github Actions binary cache
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgDirectory: C:\vcpkg
+        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+        doNotCache: false
 
     - name: Install vcpkg dependencies
+      env:
+        VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
       run: |
-        # RustDesk uses vcpkg.json manifest mode.
-        # Must run "vcpkg install" without package args in the project directory.
-        cd "${{ github.workspace }}"
-        echo "Installing dependencies from vcpkg.json manifest..."
-        vcpkg install
-      shell: pwsh
-      timeout-minutes: 120
+        if ! $VCPKG_ROOT/vcpkg \
+          install \
+          --triplet x64-windows-static \
+          --x-install-root="$VCPKG_ROOT/installed"; then
+          find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
+            echo "$_1:"
+            echo "======"
+            cat "$_1"
+            echo "======"
+            echo ""
+          done
+          exit 1
+        fi
+      shell: bash
+      timeout-minutes: 180
 
     - name: Build ZowinDesk
       run: cargo build --release --features inline
       shell: pwsh
       timeout-minutes: 120
       env:
-        VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
+        VCPKG_ROOT: C:\vcpkg
         LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
 
     - name: Upload ZowinDesk executable
