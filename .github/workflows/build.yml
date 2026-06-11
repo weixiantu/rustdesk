@@ -3,12 +3,12 @@ name: Build ZowinDesk Windows
 on:
   push:
     branches: [ zowindesk, master ]
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-2022
-    timeout-minutes: 360  # 6 hours timeout
+    timeout-minutes: 360
 
     steps:
     - name: Checkout code
@@ -27,9 +27,8 @@ jobs:
       with:
         cmakeVersion: 3.28.0
 
-    - name: Set LIBCLANG_PATH (use pre-installed LLVM)
+    - name: Setup LLVM and libclang
       run: |
-        # Windows-2022 runner already has LLVM 20.1.8 installed
         $llvmPaths = @(
           "C:\Program Files\LLVM\bin",
           "C:\Program Files (x86)\LLVM\bin",
@@ -47,40 +46,52 @@ jobs:
         }
         if (-not $found) {
           echo "ERROR: libclang.dll not found!"
-          Get-ChildItem "C:\Program Files\LLVM" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | Select-Object -First 10 FullName
           exit 1
         }
       shell: pwsh
 
     - name: Setup vcpkg
-      uses: lukka/run-vcpkg@v11
-      with:
-        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
-        vcpkgGitCommitId: 'f56238700759b9b6867941e6f80ec6d00d03b3ec'
-        runVcpkgInstall: true
-      env:
-        VCPKG_DEFAULT_TRIPLET: x64-windows-static
-
-    - name: Set vcpkg environment
       run: |
-        echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $env:GITHUB_ENV
-        echo "${{ github.workspace }}\vcpkg" >> $env:GITHUB_PATH
+        # Use pre-installed vcpkg on Windows runner, or clone if missing
+        $vcpkgPaths = @("C:\vcpkg", "C:\Program Files\vcpkg")
+        $found = $false
+        foreach ($p in $vcpkgPaths) {
+          if (Test-Path "$p\vcpkg.exe") {
+            echo "VCPKG_ROOT=$p" >> $env:GITHUB_ENV
+            echo "$p" >> $env:GITHUB_PATH
+            echo "Using pre-installed vcpkg at $p"
+            $found = $true
+            break
+          }
+        }
+        if (-not $found) {
+          echo "Cloning vcpkg..."
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:TEMP\vcpkg"
+          cd "$env:TEMP\vcpkg"
+          .\bootstrap-vcpkg.bat -disableMetrics
+          echo "VCPKG_ROOT=$env:TEMP\vcpkg" >> $env:GITHUB_ENV
+          echo "$env:TEMP\vcpkg" >> $env:GITHUB_PATH
+        }
       shell: pwsh
+      timeout-minutes: 10
 
     - name: Install vcpkg dependencies
       run: |
-        cd "${{ github.workspace }}\vcpkg"
-        .\vcpkg.exe install libvpx opus openssl
+        vcpkg install libvpx:x64-windows-static
+        vcpkg install opus:x64-windows-static
+        vcpkg install openssl:x64-windows-static
       shell: pwsh
       timeout-minutes: 120
+      env:
+        VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
 
     - name: Build ZowinDesk
       run: cargo build --release --features inline
       shell: pwsh
       timeout-minutes: 120
       env:
-        VCPKG_ROOT: '${{ github.workspace }}\vcpkg'
-        LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
+        VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
+        LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
 
     - name: Upload ZowinDesk executable
       uses: actions/upload-artifact@v4
