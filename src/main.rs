@@ -24,7 +24,7 @@ fn main() {
 )))]
 fn main() {
     // ZowinDesk: 启动时检查激活
-    if !crate::activation::check_activation() {
+    if !activation::check_activation() {
         eprintln!("ZowinDesk 未激活。请先激活后再使用。");
         eprintln!("激活方式：将有效的 Key 写入 activation.key 文件，或设置环境变量 ZOWINDESK_KEY。");
         std::process::exit(1);
@@ -34,7 +34,7 @@ fn main() {
     unsafe {
         winapi::um::shellscalingapi::SetProcessDpiAwareness(2);
     }
-    if let Some(args) = crate::core_main::core_main().as_mut() {
+    if let Some(args) = core_main::core_main().as_mut() {
         ui::start(args);
     }
     common::global_clean();
@@ -55,7 +55,7 @@ fn main() {
        --activate=[KEY] 'Activate ZowinDesk with a Key'",
     );
     let matches = App::new("zowindesk")
-        .version(crate::VERSION)
+        .version(VERSION)
         .author("ZowinDesk Team")
         .about("ZowinDesk Remote Desktop - CLI tool")
         .args_from_usage(&args)
@@ -65,7 +65,7 @@ fn main() {
 
     // ZowinDesk: handle --activate
     if let Some(key) = matches.value_of("activate") {
-        if crate::activation::activate_with_key(key) {
+        if activation::activate_with_key(key) {
             println!("[ZowinDesk] Activation successful! You can now run ZowinDesk normally.");
         } else {
             eprintln!("[ZowinDesk] Activation failed. Please check your Key.");
@@ -118,7 +118,7 @@ fn main() {
         cli::connect_test(p, key, token);
     } else if let Some(p) = matches.value_of("server") {
         log::info!("id={}", hbb_common::config::Config::get_id());
-        crate::start_server(true, false);
+        start_server(true, false);
     }
     common::global_clean();
 }
