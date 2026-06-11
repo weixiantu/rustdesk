@@ -3,19 +3,19 @@ name: Build ZowinDesk Windows
 on:
   push:
     branches: [ zowindesk, master ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   build-windows:
     runs-on: windows-2022
-    timeout-minutes: 360  # 6小时超时
+    timeout-minutes: 360  # 6 hours timeout
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         submodules: recursive
-        fetch-depth: 0  # 完整克隆（子模块需要）
+        fetch-depth: 0
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -32,26 +32,31 @@ jobs:
       shell: pwsh
 
     - name: Set LIBCLANG_PATH
-      run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin\libclang.dll" >> $env:GITHUB_ENV
+      run: |
+        $llvmPath = "C:\Program Files\LLVM\bin"
+        echo "LIBCLANG_PATH=$llvmPath\libclang.dll" >> $env:GITHUB_ENV
+        echo "$llvmPath" >> $env:GITHUB_PATH
       shell: pwsh
 
-    - name: Setup vcpkg (stable)
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        vcpkgGitCommitId: 'f56238700759b9b6867941e6f80ec6d00d03b3ec'
+        runVcpkgInstall: true
+      env:
+        VCPKG_DEFAULT_TRIPLET: x64-windows-static
+
+    - name: Set vcpkg environment
       run: |
-        git clone https://github.com/microsoft/vcpkg.git D:\vcpkg
-        cd D:\vcpkg
-        git checkout 2024.01.12  # 稳定版本，不要求 CMake 4.3.2
-        .\bootstrap-vcpkg.bat -disableMetrics
-        echo "VCPKG_ROOT=D:\vcpkg" >> $env:GITHUB_ENV
-        echo "D:\vcpkg" >> $env:GITHUB_PATH
+        echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $env:GITHUB_ENV
+        echo "${{ github.workspace }}\vcpkg" >> $env:GITHUB_PATH
       shell: pwsh
-      timeout-minutes: 30
 
     - name: Install vcpkg dependencies
       run: |
-        cd D:\vcpkg
-        .\vcpkg.exe install libvpx:x64-windows-static
-        .\vcpkg.exe install opus:x64-windows-static
-        .\vcpkg.exe install openssl:x64-windows-static
+        cd "${{ github.workspace }}\vcpkg"
+        .\vcpkg.exe install libvpx opus openssl
       shell: pwsh
       timeout-minutes: 120
 
@@ -59,6 +64,9 @@ jobs:
       run: cargo build --release --features inline
       shell: pwsh
       timeout-minutes: 120
+      env:
+        VCPKG_ROOT: '${{ github.workspace }}\vcpkg'
+        LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
 
     - name: Upload ZowinDesk executable
       uses: actions/upload-artifact@v4
