@@ -52,38 +52,31 @@ jobs:
 
     - name: Setup vcpkg
       run: |
-        # Use pre-installed vcpkg on Windows runner, or clone if missing
-        $vcpkgPaths = @("C:\vcpkg", "C:\Program Files\vcpkg")
-        $found = $false
-        foreach ($p in $vcpkgPaths) {
-          if (Test-Path "$p\vcpkg.exe") {
-            echo "VCPKG_ROOT=$p" >> $env:GITHUB_ENV
-            echo "$p" >> $env:GITHUB_PATH
-            echo "Using pre-installed vcpkg at $p"
-            $found = $true
-            break
-          }
+        # vcpkg is pre-installed on windows-2022 runner at C:\vcpkg
+        $vcpkgRoot = "C:\vcpkg"
+        if (-not (Test-Path "$vcpkgRoot\vcpkg.exe")) {
+          echo "ERROR: vcpkg.exe not found at $vcpkgRoot"
+          exit 1
         }
-        if (-not $found) {
-          echo "Cloning vcpkg..."
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:TEMP\vcpkg"
-          cd "$env:TEMP\vcpkg"
-          .\bootstrap-vcpkg.bat -disableMetrics
-          echo "VCPKG_ROOT=$env:TEMP\vcpkg" >> $env:GITHUB_ENV
-          echo "$env:TEMP\vcpkg" >> $env:GITHUB_PATH
-        }
+        echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+        echo "$vcpkgRoot" >> $env:GITHUB_PATH
+        echo "Using vcpkg at $vcpkgRoot"
+        # Ensure vcpkg is up to date
+        cd $vcpkgRoot
+        git pull
+        .\bootstrap-vcpkg.bat -disableMetrics
       shell: pwsh
       timeout-minutes: 10
 
     - name: Install vcpkg dependencies
       run: |
-        vcpkg install libvpx:x64-windows-static
-        vcpkg install opus:x64-windows-static
-        vcpkg install openssl:x64-windows-static
+        $vcpkgRoot = $env:VCPKG_ROOT
+        echo "Installing dependencies using vcpkg at $vcpkgRoot"
+        & "$vcpkgRoot\vcpkg.exe" install libvpx:x64-windows-static
+        & "$vcpkgRoot\vcpkg.exe" install opus:x64-windows-static
+        & "$vcpkgRoot\vcpkg.exe" install openssl:x64-windows-static
       shell: pwsh
       timeout-minutes: 120
-      env:
-        VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
 
     - name: Build ZowinDesk
       run: cargo build --release --features inline
