@@ -70,11 +70,11 @@ jobs:
 
     - name: Install vcpkg dependencies
       run: |
-        $vcpkgRoot = $env:VCPKG_ROOT
-        echo "Installing dependencies using vcpkg at $vcpkgRoot"
-        & "$vcpkgRoot\vcpkg.exe" install libvpx:x64-windows-static
-        & "$vcpkgRoot\vcpkg.exe" install opus:x64-windows-static
-        & "$vcpkgRoot\vcpkg.exe" install openssl:x64-windows-static
+        # RustDesk uses vcpkg.json manifest mode.
+        # Must run "vcpkg install" without package args in the project directory.
+        cd "${{ github.workspace }}"
+        echo "Installing dependencies from vcpkg.json manifest..."
+        vcpkg install
       shell: pwsh
       timeout-minutes: 120
 
