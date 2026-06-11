@@ -1,0 +1,68 @@
+name: Build ZowinDesk Windows
+
+on:
+  push:
+    branches: [ zowindesk, master ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 360  # 6小时超时
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0  # 完整克隆（子模块需要）
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-pc-windows-msvc
+
+    - name: Install CMake
+      uses: lukka/get-cmake@latest
+      with:
+        cmakeVersion: 3.28.0
+
+    - name: Install LLVM
+      run: choco install llvm --version=17.0.6 -y --no-progress
+      shell: pwsh
+
+    - name: Set LIBCLANG_PATH
+      run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin\libclang.dll" >> $env:GITHUB_ENV
+      shell: pwsh
+
+    - name: Setup vcpkg (stable)
+      run: |
+        git clone https://github.com/microsoft/vcpkg.git D:\vcpkg
+        cd D:\vcpkg
+        git checkout 2024.01.12  # 稳定版本，不要求 CMake 4.3.2
+        .\bootstrap-vcpkg.bat -disableMetrics
+        echo "VCPKG_ROOT=D:\vcpkg" >> $env:GITHUB_ENV
+        echo "D:\vcpkg" >> $env:GITHUB_PATH
+      shell: pwsh
+      timeout-minutes: 30
+
+    - name: Install vcpkg dependencies
+      run: |
+        cd D:\vcpkg
+        .\vcpkg.exe install libvpx:x64-windows-static
+        .\vcpkg.exe install opus:x64-windows-static
+        .\vcpkg.exe install openssl:x64-windows-static
+      shell: pwsh
+      timeout-minutes: 120
+
+    - name: Build ZowinDesk
+      run: cargo build --release --features inline
+      shell: pwsh
+      timeout-minutes: 120
+
+    - name: Upload ZowinDesk executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: zowindesk-windows
+        path: target\release\zowindesk.exe
+        retention-days: 30
