@@ -89,7 +89,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("android_version_audio_tip", "The current Android version does not support audio capture, please upgrade to Android 10 or higher."),
         ("android_start_service_tip", "Tap [Start service] or enable [Screen Capture] permission to start the screen sharing service."),
         ("android_permission_may_not_change_tip", "Permissions for established connections may not be changed instantly until reconnected."),
-        ("doc_mac_permission", "#
+        ("doc_mac_permission", "Please refer to the documentation for macOS permission settings."),
         ("Ignore Battery Optimizations", "Ignore battery optimizations"),
         ("android_open_battery_optimizations_tip", "If you want to disable this feature, please go to the next RustDesk application settings page, find and enter [Battery], Uncheck [Unrestricted]"),
         ("remote_restarting_tip", "Remote device is restarting, please close this message box and reconnect with permanent password after a while"),
