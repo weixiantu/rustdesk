@@ -23,6 +23,13 @@ fn main() {
     feature = "flutter"
 )))]
 fn main() {
+    // ZowinDesk: 启动时检查激活
+    if !crate::activation::check_activation() {
+        eprintln!("ZowinDesk 未激活。请先激活后再使用。");
+        eprintln!("激活方式：将有效的 Key 写入 activation.key 文件，或设置环境变量 ZOWINDESK_KEY。");
+        std::process::exit(1);
+    }
+
     #[cfg(all(windows, not(feature = "inline")))]
     unsafe {
         winapi::um::shellscalingapi::SetProcessDpiAwareness(2);
@@ -44,16 +51,29 @@ fn main() {
         "-p, --port-forward=[PORT-FORWARD-OPTIONS] 'Format: remote-id:local-port:remote-port[:remote-host]'
         -c, --connect=[REMOTE_ID] 'test only'
         -k, --key=[KEY] ''
-       -s, --server=[] 'Start server'",
+       -s, --server=[] 'Start server'
+       --activate=[KEY] 'Activate ZowinDesk with a Key'",
     );
-    let matches = App::new("rustdesk")
+    let matches = App::new("zowindesk")
         .version(crate::VERSION)
-        .author("Purslane Ltd<info@rustdesk.com>")
-        .about("RustDesk command line tool")
+        .author("ZowinDesk Team")
+        .about("ZowinDesk Remote Desktop - CLI tool")
         .args_from_usage(&args)
         .get_matches();
     use hbb_common::{config::LocalConfig, env_logger::*};
     init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "info"));
+
+    // ZowinDesk: handle --activate
+    if let Some(key) = matches.value_of("activate") {
+        if crate::activation::activate_with_key(key) {
+            println!("[ZowinDesk] Activation successful! You can now run ZowinDesk normally.");
+        } else {
+            eprintln!("[ZowinDesk] Activation failed. Please check your Key.");
+        }
+        common::global_clean();
+        return;
+    }
+
     if let Some(p) = matches.value_of("port-forward") {
         let options: Vec<String> = p.split(":").map(|x| x.to_owned()).collect();
         if options.len() < 3 {

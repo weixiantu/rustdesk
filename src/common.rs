@@ -953,6 +953,9 @@ pub fn check_software_update() {
 // Because the url is always `https://api.rustdesk.com/version/latest`.
 #[tokio::main(flavor = "current_thread")]
 pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
+    // ZowinDesk: 禁用官方更新检查
+    Ok(())
+    /*
     let (request, url) =
         hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string());
     let proxy_conf = Config::get_socks();
@@ -998,6 +1001,7 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
     }
     Ok(())
+    */
 }
 
 #[inline]
@@ -1007,7 +1011,7 @@ pub fn get_app_name() -> String {
 
 #[inline]
 pub fn is_rustdesk() -> bool {
-    hbb_common::config::APP_NAME.read().unwrap().eq("RustDesk")
+    false  // ZowinDesk: always return false to disable RustDesk official behaviors
 }
 
 #[inline]
@@ -1081,7 +1085,8 @@ fn get_api_server_(api: String, custom: String) -> String {
             return format!("http://{}", s);
         }
     }
-    "https://admin.rustdesk.com".to_owned()
+    // ZowinDesk: 去除官方 API 服务器，让用户在文件名或配置中自行指定
+    "".to_owned()
 }
 
 #[inline]
