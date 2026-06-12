@@ -1,7 +1,8 @@
-#![cfg_attr(
-    all(not(debug_assertions), target_os = "windows"),
-    windows_subsystem = "windows"
-)]
+// ZowinDesk: 临时移除 windows_subsystem，显示控制台用于调试
+// #![cfg_attr(
+//     all(not(debug_assertions), target_os = "windows"),
+//     windows_subsystem = "windows"
+// )]
 
 use librustdesk::*;
 
