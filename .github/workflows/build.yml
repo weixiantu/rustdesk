@@ -87,43 +87,39 @@ jobs:
         VCPKG_ROOT: C:\vcpkg
         LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
 
-    - name: Copy sciter.dll to output directory
+    - name: Download sciter.dll from official RustDesk release
       run: |
-        # Sciter DLL 可能在多个位置，搜索并复制
-        $searchPaths = @(
-          "target\release\build\sciter-rs-*",
-          "target\release\build\rust-sciter-*",
-          "libs\sciter-rs\bin\64",
-          "$env:USERPROFILE\.cargo"
-        )
+        # 从官方 RustDesk 发布页面下载 sciter.dll
+        $releaseUrl = "https://github.com/rustdesk/rustdesk/releases/latest"
+        Write-Host "Fetching latest RustDesk release info..."
         
-        $found = $false
-        foreach ($path in $searchPaths) {
-          $files = Get-ChildItem -Path $path -Recurse -Filter "sciter.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($files) {
-            Write-Host "Found sciter.dll at: $($files.FullName)"
-            Copy-Item $files.FullName -Destination "target\release\sciter.dll" -Force
-            $found = $true
-            break
-          }
-        }
+        # 使用 GitHub API 获取最新发布信息
+        $releaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/rustdesk/rustdesk/releases/latest" -Headers @{ "User-Agent" = "GitHub-Actions" }
+        $zipUrl = $releaseInfo.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1 -ExpandProperty browser_download_url
         
-        if (-not $found) {
-          Write-Host "WARNING: sciter.dll not found in common paths, searching entire workspace..."
-          $foundFiles = Get-ChildItem -Path . -Recurse -Filter "sciter.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($foundFiles) {
-            Write-Host "Found at: $($foundFiles.FullName)"
-            Copy-Item $foundFiles.FullName -Destination "target\release\sciter.dll" -Force
+        if ($zipUrl) {
+          Write-Host "Downloading RustDesk release from: $zipUrl"
+          $zipFile = "rustdesk-latest.zip"
+          Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile
+          
+          Write-Host "Extracting sciter.dll from zip..."
+          Expand-Archive -Path $zipFile -DestinationPath "rustdesk-extracted" -Force
+          
+          $sciterDll = Get-ChildItem -Path "rustdesk-extracted" -Recurse -Filter "sciter.dll" | Select-Object -First 1
+          if ($sciterDll) {
+            Write-Host "Found sciter.dll at: $($sciterDll.FullName)"
+            Copy-Item $sciterDll.FullName -Destination "target\release\sciter.dll" -Force
+            Write-Host "SUCCESS: sciter.dll copied to output directory"
           } else {
-            Write-Error "ERROR: sciter.dll not found anywhere! Build may fail at runtime."
-            # Don't exit 1 here, let the artifact upload proceed
+            Write-Error "ERROR: sciter.dll not found in RustDesk release zip"
+            exit 1
           }
+        } else {
+          Write-Error "ERROR: Could not find zip asset in RustDesk release"
+          exit 1
         }
-        
-        # List output directory for debugging
-        Write-Host "Output directory contents:"
-        Get-ChildItem "target\release\" | Select-Object Name, Length | Format-Table
       shell: pwsh
+      timeout-minutes: 10
 
     - name: Upload ZowinDesk executable
       uses: actions/upload-artifact@v4
