@@ -87,49 +87,34 @@ jobs:
         VCPKG_ROOT: C:\vcpkg
         LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
 
-    - name: Download sciter.dll
+    - name: Prepare sciter.dll
       run: |
-        $outputPath = "target\release\sciter.dll"
+        Write-Host "Checking for sciter.dll..."
 
-        # 尝试多个下载源
-        $downloadSources = @(
-          "https://sciter.com/bin/64/sciter.dll",
-          "https://raw.githubusercontent.com/rustdesk/rustdesk/master/libs/sciter.dll"
-        )
-
-        $success = $false
-        foreach ($url in $downloadSources) {
-          try {
-            Write-Host "Trying to download from: $url"
-            Invoke-WebRequest -Uri $url -OutFile $outputPath -ErrorAction Stop
-
-            # 验证文件是否是有效的 DLL (检查 MZ 头)
-            $bytes = [System.IO.File]::ReadAllBytes($outputPath)
-            $header = [System.Text.Encoding]::ASCII.GetString($bytes[0..1])
-            if ($header -eq "MZ") {
-              Write-Host "SUCCESS: sciter.dll downloaded from: $url"
-              $success = $true
-              break
-            } else {
-              Write-Host "WARNING: Downloaded file is not a valid DLL, trying next source..."
-              Remove-Item $outputPath -Force -ErrorAction SilentlyContinue
-            }
-          } catch {
-            Write-Host "WARNING: Failed to download from $url : $_"
-          }
-        }
-
-        if (-not $success) {
-          Write-Error "ERROR: Failed to download sciter.dll from all sources"
-          Write-Host "Please manually download sciter.dll and commit it to the repository"
+        # 方案1: 从仓库的 libs/ 目录复制 (推荐)
+        if (Test-Path "libs\sciter.dll") {
+          Write-Host "Found sciter.dll in libs/ directory"
+          Copy-Item "libs\sciter.dll" -Destination "target\release\sciter.dll" -Force
+          Write-Host "SUCCESS: sciter.dll copied from libs/"
+        } else {
+          Write-Host "sciter.dll not found in libs/ directory"
+          Write-Host "Please download sciter.dll from official RustDesk release and commit it to libs/ directory"
+          Write-Host "Download URL: https://github.com/rustdesk/rustdesk/releases/latest"
+          Write-Host "Look for 'RustDesk-*-windows-x64.exe' or portable version"
           exit 1
         }
 
-        # 最终验证
-        $fileSize = (Get-Item $outputPath).Length
-        Write-Host "sciter.dll downloaded successfully (size: $fileSize bytes)"
+        # 验证文件
+        $outputPath = "target\release\sciter.dll"
+        if (Test-Path $outputPath) {
+          $fileSize = (Get-Item $outputPath).Length
+          Write-Host "sciter.dll is ready (size: $fileSize bytes)"
+        } else {
+          Write-Error "ERROR: sciter.dll was not copied"
+          exit 1
+        }
       shell: pwsh
-      timeout-minutes: 10
+      timeout-minutes: 5
 
     - name: Upload ZowinDesk executable
       uses: actions/upload-artifact@v4
