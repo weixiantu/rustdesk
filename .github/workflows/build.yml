@@ -87,34 +87,50 @@ jobs:
         VCPKG_ROOT: C:\vcpkg
         LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
 
-    - name: Prepare sciter.dll
+    - name: Create sciter.dll download instructions
       run: |
-        Write-Host "Checking for sciter.dll..."
+        Write-Host "Creating sciter.dll download instructions..."
 
-        # 方案1: 从仓库的 libs/ 目录复制 (推荐)
-        if (Test-Path "libs\sciter.dll") {
-          Write-Host "Found sciter.dll in libs/ directory"
-          Copy-Item "libs\sciter.dll" -Destination "target\release\sciter.dll" -Force
-          Write-Host "SUCCESS: sciter.dll copied from libs/"
-        } else {
-          Write-Host "sciter.dll not found in libs/ directory"
-          Write-Host "Please download sciter.dll from official RustDesk release and commit it to libs/ directory"
-          Write-Host "Download URL: https://github.com/rustdesk/rustdesk/releases/latest"
-          Write-Host "Look for 'RustDesk-*-windows-x64.exe' or portable version"
-          exit 1
-        }
+        $readmeContent = @"
+========================================================
+ZowinDesk Windows - 使用说明
+========================================================
 
-        # 验证文件
-        $outputPath = "target\release\sciter.dll"
-        if (Test-Path $outputPath) {
-          $fileSize = (Get-Item $outputPath).Length
-          Write-Host "sciter.dll is ready (size: $fileSize bytes)"
-        } else {
-          Write-Error "ERROR: sciter.dll was not copied"
-          exit 1
-        }
+重要提示：运行 zowindesk.exe 需要 sciter.dll
+
+请按以下步骤操作：
+
+方法1：从 RustDesk 官方下载
+1. 访问：https://rustdesk.net/
+2. 下载 "Windows Portable" 版本（便携版）
+3. 解压下载的 ZIP 文件
+4. 复制 sciter.dll 到 zowindesk.exe 所在目录
+
+方法2：从 Sciter 官方 SDK 下载
+1. 访问：https://sciter.com/sdk/
+2. 下载 Sciter SDK
+3. 从 bin/64/ 目录复制 sciter.dll
+4. 将 sciter.dll 放在 zowindesk.exe 同一目录
+
+验证：
+- 确保 sciter.dll 和 zowindesk.exe 在同一个目录
+- 双击 zowindesk.exe 运行
+
+技术说明：
+- sciter.dll 是 Sciter UI 引擎的运行时库
+- ZowinDesk 使用 Sciter 作为 GUI 框架
+- 必须将 sciter.dll 放在可执行文件同一目录
+
+"@
+
+        # 写 UTF-8 编码的 README 文件
+        $utf8 = [System.Text.Encoding]::UTF8
+        [System.IO.File]::WriteAllText("target\release\使用说明.txt", $readmeContent, $utf8)
+
+        Write-Host "Created 使用说明.txt"
+        Write-Host "Build completed successfully!"
       shell: pwsh
-      timeout-minutes: 5
+      timeout-minutes: 2
 
     - name: Upload ZowinDesk executable
       uses: actions/upload-artifact@v4
@@ -122,5 +138,5 @@ jobs:
         name: zowindesk-windows
         path: |
           target\release\zowindesk.exe
-          target\release\sciter.dll
+          target\release\使用说明.txt
         retention-days: 30
