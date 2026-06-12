@@ -91,43 +91,39 @@ jobs:
       run: |
         Write-Host "Creating sciter.dll download instructions..."
 
-        $readmeContent = @"
-========================================================
-ZowinDesk Windows - 使用说明
-========================================================
+        $readmeContent = @(
+          "========================================================",
+          "ZowinDesk Windows - Usage Instructions",
+          "========================================================",
+          "",
+          "IMPORTANT: Running zowindesk.exe requires sciter.dll",
+          "",
+          "Please follow these steps:",
+          "",
+          "Method 1: Download from RustDesk official",
+          "1. Visit: https://rustdesk.net/",
+          "2. Download 'Windows Portable' version",
+          "3. Extract the ZIP file",
+          "4. Copy sciter.dll to the same directory as zowindesk.exe",
+          "",
+          "Method 2: Download from Sciter official SDK",
+          "1. Visit: https://sciter.com/sdk/",
+          "2. Download Sciter SDK",
+          "3. Copy sciter.dll from bin/64/ directory",
+          "4. Place sciter.dll in the same directory as zowindesk.exe",
+          "",
+          "Verification:",
+          "- Ensure sciter.dll and zowindesk.exe are in the same directory",
+          "- Double-click zowindesk.exe to run",
+          "",
+          "Technical Notes:",
+          "- sciter.dll is the Sciter UI engine runtime library",
+          "- ZowinDesk uses Sciter as the GUI framework",
+          "- sciter.dll must be placed in the same directory as the executable"
+        )
 
-重要提示：运行 zowindesk.exe 需要 sciter.dll
-
-请按以下步骤操作：
-
-方法1：从 RustDesk 官方下载
-1. 访问：https://rustdesk.net/
-2. 下载 "Windows Portable" 版本（便携版）
-3. 解压下载的 ZIP 文件
-4. 复制 sciter.dll 到 zowindesk.exe 所在目录
-
-方法2：从 Sciter 官方 SDK 下载
-1. 访问：https://sciter.com/sdk/
-2. 下载 Sciter SDK
-3. 从 bin/64/ 目录复制 sciter.dll
-4. 将 sciter.dll 放在 zowindesk.exe 同一目录
-
-验证：
-- 确保 sciter.dll 和 zowindesk.exe 在同一个目录
-- 双击 zowindesk.exe 运行
-
-技术说明：
-- sciter.dll 是 Sciter UI 引擎的运行时库
-- ZowinDesk 使用 Sciter 作为 GUI 框架
-- 必须将 sciter.dll 放在可执行文件同一目录
-
-"@
-
-        # 写 UTF-8 编码的 README 文件
-        $utf8 = [System.Text.Encoding]::UTF8
-        [System.IO.File]::WriteAllText("target\release\使用说明.txt", $readmeContent, $utf8)
-
-        Write-Host "Created 使用说明.txt"
+        $readmeContent | Out-File -FilePath "target\release\README-sciter.txt" -Encoding UTF8
+        Write-Host "Created README-sciter.txt"
         Write-Host "Build completed successfully!"
       shell: pwsh
       timeout-minutes: 2
