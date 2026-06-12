@@ -23,12 +23,12 @@ fn main() {
     feature = "flutter"
 )))]
 fn main() {
-    // ZowinDesk: 启动时检查激活
-    if !activation::check_activation() {
-        eprintln!("ZowinDesk 未激活。请先激活后再使用。");
-        eprintln!("激活方式：将有效的 Key 写入 activation.key 文件，或设置环境变量 ZOWINDESK_KEY。");
-        std::process::exit(1);
-    }
+    // ZowinDesk: 临时注释掉激活检查，用于测试程序是否能正常运行
+    // if !activation::check_activation() {
+    //     eprintln!("ZowinDesk 未激活。请先激活后再使用。");
+    //     eprintln!("激活方式：将有效的 Key 写入 activation.key 文件，或设置环境变量 ZOWINDESK_KEY。");
+    //     std::process::exit(1);
+    // }
 
     #[cfg(all(windows, not(feature = "inline")))]
     unsafe {
