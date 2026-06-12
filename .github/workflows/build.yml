@@ -80,7 +80,7 @@ jobs:
       timeout-minutes: 180
 
     - name: Build ZowinDesk
-      run: cargo build --release
+      run: cargo build --release --features inline
       shell: pwsh
       timeout-minutes: 120
       env:
