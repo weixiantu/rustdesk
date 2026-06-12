@@ -89,64 +89,45 @@ jobs:
 
     - name: Download sciter.dll
       run: |
-        Write-Host "Downloading sciter.dll for Windows x64..."
-
-        # 方案1: 从 Sciter 官方 SDK 下载 (RustDesk 使用此版本)
-        $sciterUrl = "https://sciter.com/sdk/sciter64.dll"
         $outputPath = "target\release\sciter.dll"
 
-        try {
-          Invoke-WebRequest -Uri $sciterUrl -OutFile $outputPath -ErrorAction Stop
-          Write-Host "SUCCESS: sciter.dll downloaded from Sciter official SDK"
-          
-          # 验证文件是否存在
-          if (Test-Path $outputPath) {
-            $fileSize = (Get-Item $outputPath).Length
-            Write-Host "sciter.dll file size: $fileSize bytes"
-          } else {
-            throw "sciter.dll not found after download"
-          }
-        } catch {
-          Write-Error "ERROR: Failed to download sciter.dll from Sciter official: $_"
-          
-          # 方案2: 从 RustDesk 最新发布下载 (尝试查找任何 Windows 可执行文件或压缩包)
-          Write-Host "Trying to download from RustDesk release..."
+        # 尝试多个下载源
+        $downloadSources = @(
+          "https://sciter.com/bin/64/sciter.dll",
+          "https://raw.githubusercontent.com/rustdesk/rustdesk/master/libs/sciter.dll"
+        )
+
+        $success = $false
+        foreach ($url in $downloadSources) {
           try {
-            $releaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/rustdesk/rustdesk/releases/latest" -Headers @{ "User-Agent" = "GitHub-Actions" }
-            
-            # 查找任何包含 windows 和 x64 的 asset
-            $assets = $releaseInfo.assets | Where-Object { $_.name -like "*windows*" -or $_.name -like "*x64*" -or $_.name -like "*.zip" -or $_.name -like "*.exe" }
-            
-            if ($assets) {
-              Write-Host "Found assets:"
-              $assets | ForEach-Object { Write-Host $_.name }
-              
-              # 优先下载 .zip 文件
-              $zipAsset = $assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
-              if ($zipAsset) {
-                $assetUrl = $zipAsset.browser_download_url
-                Write-Host "Downloading from: $assetUrl"
-                $zipFile = "rustdesk-asset.zip"
-                Invoke-WebRequest -Uri $assetUrl -OutFile $zipFile
-                Expand-Archive -Path $zipFile -DestinationPath "rustdesk-extracted" -Force
-                $sciterDll = Get-ChildItem -Path "rustdesk-extracted" -Recurse -Filter "sciter.dll" | Select-Object -First 1
-                if ($sciterDll) {
-                  Copy-Item $sciterDll.FullName -Destination $outputPath -Force
-                  Write-Host "SUCCESS: sciter.dll extracted from RustDesk release"
-                } else {
-                  throw "sciter.dll not found in RustDesk asset"
-                }
-              } else {
-                throw "No .zip asset found in RustDesk release"
-              }
+            Write-Host "Trying to download from: $url"
+            Invoke-WebRequest -Uri $url -OutFile $outputPath -ErrorAction Stop
+
+            # 验证文件是否是有效的 DLL (检查 MZ 头)
+            $bytes = [System.IO.File]::ReadAllBytes($outputPath)
+            $header = [System.Text.Encoding]::ASCII.GetString($bytes[0..1])
+            if ($header -eq "MZ") {
+              Write-Host "SUCCESS: sciter.dll downloaded from: $url"
+              $success = $true
+              break
             } else {
-              throw "No suitable asset found in RustDesk release"
+              Write-Host "WARNING: Downloaded file is not a valid DLL, trying next source..."
+              Remove-Item $outputPath -Force -ErrorAction SilentlyContinue
             }
           } catch {
-            Write-Error "ERROR: Failed to download from RustDesk release: $_"
-            exit 1
+            Write-Host "WARNING: Failed to download from $url : $_"
           }
         }
+
+        if (-not $success) {
+          Write-Error "ERROR: Failed to download sciter.dll from all sources"
+          Write-Host "Please manually download sciter.dll and commit it to the repository"
+          exit 1
+        }
+
+        # 最终验证
+        $fileSize = (Get-Item $outputPath).Length
+        Write-Host "sciter.dll downloaded successfully (size: $fileSize bytes)"
       shell: pwsh
       timeout-minutes: 10
 
