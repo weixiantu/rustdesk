@@ -87,9 +87,49 @@ jobs:
         VCPKG_ROOT: C:\vcpkg
         LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
 
+    - name: Copy sciter.dll to output directory
+      run: |
+        # Sciter DLL 可能在多个位置，搜索并复制
+        $searchPaths = @(
+          "target\release\build\sciter-rs-*",
+          "target\release\build\rust-sciter-*",
+          "libs\sciter-rs\bin\64",
+          "$env:USERPROFILE\.cargo"
+        )
+        
+        $found = $false
+        foreach ($path in $searchPaths) {
+          $files = Get-ChildItem -Path $path -Recurse -Filter "sciter.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($files) {
+            Write-Host "Found sciter.dll at: $($files.FullName)"
+            Copy-Item $files.FullName -Destination "target\release\sciter.dll" -Force
+            $found = $true
+            break
+          }
+        }
+        
+        if (-not $found) {
+          Write-Host "WARNING: sciter.dll not found in common paths, searching entire workspace..."
+          $foundFiles = Get-ChildItem -Path . -Recurse -Filter "sciter.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($foundFiles) {
+            Write-Host "Found at: $($foundFiles.FullName)"
+            Copy-Item $foundFiles.FullName -Destination "target\release\sciter.dll" -Force
+          } else {
+            Write-Error "ERROR: sciter.dll not found anywhere! Build may fail at runtime."
+            # Don't exit 1 here, let the artifact upload proceed
+          }
+        }
+        
+        # List output directory for debugging
+        Write-Host "Output directory contents:"
+        Get-ChildItem "target\release\" | Select-Object Name, Length | Format-Table
+      shell: pwsh
+
     - name: Upload ZowinDesk executable
       uses: actions/upload-artifact@v4
       with:
         name: zowindesk-windows
-        path: target\release\zowindesk.exe
+        path: |
+          target\release\zowindesk.exe
+          target\release\sciter.dll
         retention-days: 30
