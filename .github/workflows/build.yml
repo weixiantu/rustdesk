@@ -80,21 +80,12 @@ jobs:
       timeout-minutes: 180
 
     - name: Build ZowinDesk
-      run: cargo build --release
+      run: cargo build --release --features inline
       shell: pwsh
       timeout-minutes: 120
       env:
         VCPKG_ROOT: C:\vcpkg
         LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
-
-    - name: Copy UI resources to output
-      run: |
-        Write-Host "Copying UI resources to output directory..."
-        New-Item -ItemType Directory -Force -Path "target\release\src\ui" | Out-Null
-        Copy-Item -Path "src\ui\*" -Destination "target\release\src\ui\" -Recurse -Force
-        Write-Host "UI resources copied successfully"
-      shell: pwsh
-      timeout-minutes: 2
 
     - name: Upload ZowinDesk executable
       uses: actions/upload-artifact@v4
@@ -102,5 +93,4 @@ jobs:
         name: zowindesk-windows
         path: |
           target\release\zowindesk.exe
-          target\release\src\ui\**
         retention-days: 30

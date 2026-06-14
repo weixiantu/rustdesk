@@ -177,16 +177,15 @@ pub fn start(args: &mut [String]) {
     }
     #[cfg(not(feature = "inline"))]
     {
-        // ZowinDesk: 使用可执行文件所在目录作为基础路径，支持从任意位置运行
+        // ZowinDesk: 使用可执行文件所在目录作为基础路径
         let exe_dir = std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|p| p.to_path_buf()))
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let ui_path = exe_dir.join("src").join("ui").join(&page);
-        frame.load_file(&format!(
-            "file://{}",
-            ui_path.to_string_lossy().replace("\\", "/")
-        ));
+        // Windows file:// URL needs 3 slashes: file:///D:/path/to/file.html
+        let url = ui_path.to_string_lossy().replace("\\", "/");
+        frame.load_file(&format!("file:///{}", url));
     }
     let hide_cm = *cm::HIDE_CM.lock().unwrap();
     if !args.is_empty() && args[0] == "--cm" && hide_cm {
