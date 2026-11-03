@@ -135,25 +135,40 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
-      - name: Patch server config (ZowinDesk 43.139.157.84)
+      - name: Patch server config and branding (ZowinDesk)
         shell: bash
         run: |
           python3 - <<'EOF'
           import re
+          # 1. Server config + APP_NAME (hbb_common config.rs)
           p = 'libs/hbb_common/src/config.rs'
           s = open(p, encoding='utf-8').read()
           s2 = re.sub(r'pub const RENDEZVOUS_SERVERS[^;]*;',
                       'pub const RENDEZVOUS_SERVERS: &[&str] = &["43.139.157.84"];', s)
           s2 = re.sub(r'pub const RS_PUB_KEY[^;]*;',
                       'pub const RS_PUB_KEY: &str = "PMEoK7kHVXLlHB4td8wk13ezTwKABynXQucZURTZtuo=";', s2)
-          assert s2 != s, 'config.rs patch failed - pattern not found'
+          s2 = s2.replace('RwLock::new("RustDesk".to_owned())',
+                          'RwLock::new("ZowinDesk".to_owned())')
+          assert 'RENDEZVOUS_SERVERS: &[&str] = &["43.139.157.84"]' in s2, 'server patch failed'
+          assert 'RS_PUB_KEY: &str = "PMEoK7kHVXLlHB4td8wk13ezTwKABynXQucZURTZtuo="' in s2, 'key patch failed'
+          assert 'RwLock::new("ZowinDesk"' in s2, 'APP_NAME patch failed'
           open(p, 'w', encoding='utf-8').write(s2)
-          print('Patched OK:')
+          print('config.rs Patched OK')
+          # 2. Runner.rc (exe properties: ProductName / FileDescription / CompanyName)
+          p3 = 'flutter/windows/runner/Runner.rc'
+          s3 = open(p3, encoding='utf-8').read()
+          s3 = s3.replace('"RustDesk Remote Desktop"', '"ZowinDesk Remote Desktop"')
+          s3 = s3.replace('"ProductName", "RustDesk"', '"ProductName", "ZowinDesk"')
+          s3 = s3.replace('"CompanyName", "Purslane Tech Pte. Ltd."', '"CompanyName", "ZowinDesk"')
+          assert '"ProductName", "ZowinDesk"' in s3, 'Runner.rc patch failed'
+          open(p3, 'w', encoding='utf-8').write(s3)
+          print('Runner.rc Patched OK')
           for line in s2.splitlines():
-              if 'RENDEZVOUS_SERVERS' in line or 'RS_PUB_KEY' in line:
+              if 'pub const' in line and ('RENDEZVOUS_SERVERS' in line or 'RS_PUB_KEY' in line):
                   print(' ', line.strip())
           EOF
           grep -n "RENDEZVOUS_SERVERS\|RS_PUB_KEY" libs/hbb_common/src/config.rs | head -5
+          grep -n "ZowinDesk" flutter/windows/runner/Runner.rc
 
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -433,7 +448,7 @@ jobs:
           python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
           popd
           mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
+          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/ZowinDesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
@@ -451,12 +466,12 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           pushd ./res/msi
-          python preprocess.py --arp -d ../../rustdesk
+          python preprocess.py --arp --app-name ZowinDesk -d ../../rustdesk
           nuget restore msi.sln
           $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
           msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10
           $msi = Get-ChildItem ./Package/bin/*/Release/en-us/Package.msi | Select-Object -First 1
-          mv $msi.FullName ../../SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
+          mv $msi.FullName ../../SignOutput/ZowinDesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
           sha256sum ../../SignOutput/rustdesk-*.msi
 
       - name: Build pre-built MSI template
@@ -518,7 +533,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-flutter-${{ matrix.job.arch }}-exe
-          path: ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
+          path: ./SignOutput/ZowinDesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
           if-no-files-found: error
 
       - name: Upload signed Windows Flutter MSI
@@ -526,7 +541,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-flutter-${{ matrix.job.arch }}-msi
-          path: ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
+          path: ./SignOutput/ZowinDesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
           if-no-files-found: error
 
       - name: Publish Release
