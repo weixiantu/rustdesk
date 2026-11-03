@@ -465,6 +465,7 @@ jobs:
         # is x64 / ARM64; the produced Package.msi is globbed since its bin/<platform>/ dir varies.
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
+          cp ./rustdesk/rustdesk.exe ./rustdesk/ZowinDesk.exe
           pushd ./res/msi
           python preprocess.py --arp --app-name ZowinDesk -d ../../rustdesk
           nuget restore msi.sln
@@ -497,6 +498,7 @@ jobs:
           git checkout -- res/msi
           cp -r ./rustdesk ./rustdesk-msi-template
           mv ./rustdesk-msi-template/rustdesk.exe ./rustdesk-msi-template/RDAPPNAM.exe
+          Remove-Item ./rustdesk-msi-template/ZowinDesk.exe -ErrorAction SilentlyContinue
           Set-Content -Path ./rustdesk-msi-template/custom.txt -Value 'placeholder' -NoNewline
           $assets = './rustdesk-msi-template/data/flutter_assets/assets'
           New-Item -ItemType Directory -Force -Path $assets | Out-Null
