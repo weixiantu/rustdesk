@@ -184,6 +184,35 @@ jobs:
                           'std::wstring app_name = L"ZowinDesk";')
           open(p5, 'w', encoding='utf-8').write(s5)
           print('main.cpp patched:', 'L"ZowinDesk"' in s5)
+          # 5. Dart UI: hide "Powered by" badge, redirect rustdesk.com links to company site
+          p6 = 'flutter/lib/common.dart'
+          s6 = open(p6, encoding='utf-8').read()
+          o6 = 'bind.mainGetBuildinOption(key: "hide-powered-by-me") == \'Y\''
+          assert o6 in s6, 'powered-by condition not found'
+          s6 = s6.replace(o6, 'true')
+          open(p6, 'w', encoding='utf-8').write(s6)
+          print('common.dart powered-by hidden OK')
+          p7 = 'flutter/lib/desktop/pages/desktop_setting_page.dart'
+          s7 = open(p7, encoding='utf-8').read()
+          assert 'https://rustdesk.com/privacy.html' in s7, 'about privacy link not found'
+          s7 = s7.replace("launchUrlString('https://rustdesk.com/privacy.html')",
+                          "launchUrlString('https://www.zowinda.com')")
+          s7 = s7.replace("launchUrlString('https://rustdesk.com')",
+                          "launchUrlString('https://www.zowinda.com')")
+          open(p7, 'w', encoding='utf-8').write(s7)
+          print('desktop_setting_page.dart links OK')
+          p8 = 'flutter/lib/desktop/pages/install_page.dart'
+          s8 = open(p8, encoding='utf-8').read()
+          assert 'https://rustdesk.com/privacy.html' in s8, 'install eula link not found'
+          s8 = s8.replace('https://rustdesk.com/privacy.html', 'https://www.zowinda.com')
+          open(p8, 'w', encoding='utf-8').write(s8)
+          print('install_page.dart eula OK')
+          p9 = 'flutter/lib/mobile/pages/settings_page.dart'
+          s9 = open(p9, encoding='utf-8').read()
+          s9 = s9.replace('https://rustdesk.com/privacy.html', 'https://www.zowinda.com')
+          s9 = s9.replace("launchUrlString('https://rustdesk.com')", "launchUrlString('https://www.zowinda.com')")
+          open(p9, 'w', encoding='utf-8').write(s9)
+          print('mobile settings_page.dart links OK')
           for line in s2.splitlines():
               if 'pub const' in line and ('RENDEZVOUS_SERVERS' in line or 'RS_PUB_KEY' in line):
                   print(' ', line.strip())
