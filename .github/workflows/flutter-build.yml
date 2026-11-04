@@ -160,15 +160,37 @@ jobs:
           s3 = s3.replace('"RustDesk Remote Desktop"', '"ZowinDesk Remote Desktop"')
           s3 = s3.replace('"ProductName", "RustDesk"', '"ProductName", "ZowinDesk"')
           s3 = s3.replace('"CompanyName", "Purslane Tech Pte. Ltd."', '"CompanyName", "ZowinDesk"')
+          s3 = s3.replace('"OriginalFilename", "rustdesk.exe"', '"OriginalFilename", "ZowinDesk.exe"')
           assert '"ProductName", "ZowinDesk"' in s3, 'Runner.rc patch failed'
           open(p3, 'w', encoding='utf-8').write(s3)
           print('Runner.rc Patched OK')
+          # 3. Packer (installer exe) version info from winres metadata in Cargo.toml
+          p4 = 'libs/portable/Cargo.toml'
+          s4 = open(p4, encoding='utf-8').read()
+          s4 = s4.replace('description = "RustDesk Remote Desktop"',
+                          'description = "ZowinDesk Remote Desktop"')
+          s4 = s4.replace('ProductName = "RustDesk"', 'ProductName = "ZowinDesk"')
+          s4 = s4.replace('OriginalFilename = "rustdesk.exe"', 'OriginalFilename = "ZowinDesk.exe"')
+          s4 = s4.replace('FileDescription = "RustDesk Remote Desktop"',
+                          'FileDescription = "ZowinDesk Remote Desktop"\nCompanyName = "ZowinDesk"')
+          assert 'ProductName = "ZowinDesk"' in s4, 'packer Cargo.toml patch failed'
+          assert 'OriginalFilename = "ZowinDesk.exe"' in s4, 'packer OriginalFilename patch failed'
+          open(p4, 'w', encoding='utf-8').write(s4)
+          print('packer Cargo.toml Patched OK')
+          # 4. main.cpp fallback app_name (window title fallback)
+          p5 = 'flutter/windows/runner/main.cpp'
+          s5 = open(p5, encoding='utf-8').read()
+          s5 = s5.replace('std::wstring app_name = L"RustDesk";',
+                          'std::wstring app_name = L"ZowinDesk";')
+          open(p5, 'w', encoding='utf-8').write(s5)
+          print('main.cpp patched:', 'L"ZowinDesk"' in s5)
           for line in s2.splitlines():
               if 'pub const' in line and ('RENDEZVOUS_SERVERS' in line or 'RS_PUB_KEY' in line):
                   print(' ', line.strip())
           EOF
           grep -n "RENDEZVOUS_SERVERS\|RS_PUB_KEY" libs/hbb_common/src/config.rs | head -5
           grep -n "ZowinDesk" flutter/windows/runner/Runner.rc
+          grep -n "ZowinDesk" libs/portable/Cargo.toml
 
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
