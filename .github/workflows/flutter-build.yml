@@ -213,6 +213,58 @@ jobs:
           s9 = s9.replace("launchUrlString('https://rustdesk.com')", "launchUrlString('https://www.zowinda.com')")
           open(p9, 'w', encoding='utf-8').write(s9)
           print('mobile settings_page.dart links OK')
+          # 6. Bottom status bar: hide the "setup your own server" guide LINK, keep "Ready"
+          p10 = 'flutter/lib/desktop/pages/connection_page.dart'
+          s10 = open(p10, encoding='utf-8').read()
+          s10, n10 = re.subn(r'offstage: !\(!_svcStopped\.value &&\s+stateGlobal\.svcStatus\.value == SvcStatus\.ready &&\s+_svcIsUsingPublicServer\.value\),',
+                             'offstage: true,  // ZowinDesk: official guide link removed', s10)
+          assert n10 == 1, 'setup-server offstage not found: %d' % n10
+          open(p10, 'w', encoding='utf-8').write(s10)
+          print('connection_page.dart: guide link hidden, Ready text kept')
+          # 7. Hide the blue "Login" button in address book (opens official account page)
+          p11 = 'flutter/lib/common/widgets/address_book.dart'
+          s11 = open(p11, encoding='utf-8').read()
+          s11, n11 = re.subn(r'return Center\(\s*child: ElevatedButton\(\s*onPressed: loginDialog, child: Text\(translate\("Login"\)\)\)\);',
+                             'return const SizedBox.shrink();  // ZowinDesk: official login removed', s11)
+          assert n11 == 1, 'address book login button not found: %d' % n11
+          open(p11, 'w', encoding='utf-8').write(s11)
+          print('address_book.dart: login button hidden')
+          # 8. Disable loginDialog() so every remaining account entry is a no-op
+          p12 = 'flutter/lib/common/widgets/login.dart'
+          s12 = open(p12, encoding='utf-8').read()
+          old12 = 'Future<bool?> loginDialog() {\n  final activeDialog = _activeLoginDialog;'
+          assert old12 in s12, 'loginDialog() definition not found'
+          s12 = s12.replace(old12,
+                            'Future<bool?> loginDialog() {\n  return Future<bool?>.value(false);  // ZowinDesk: official login disabled\n  // ignore: dead_code\n  final activeDialog = _activeLoginDialog;', 1)
+          open(p12, 'w', encoding='utf-8').write(s12)
+          print('login.dart: loginDialog disabled')
+          # 9. Hide the Account card in settings (Login / Logout entry)
+          p13 = 'flutter/lib/desktop/pages/desktop_setting_page.dart'
+          s13 = open(p13, encoding='utf-8').read()
+          s13, n13 = re.subn(r"_Card\(title: 'Account', children: \[accountAction\(\), useInfo\(\)\]\),",
+                             '// ZowinDesk: official account card removed', s13)
+          assert n13 == 1, 'account card not found: %d' % n13
+          open(p13, 'w', encoding='utf-8').write(s13)
+          print('desktop_setting_page.dart: account card hidden')
+          # 10. Defensive: replace every remaining official URL in Flutter UI sources
+          ui_files = ['flutter/lib/common.dart',
+                      'flutter/lib/desktop/pages/desktop_home_page.dart',
+                      'flutter/lib/desktop/pages/connection_page.dart',
+                      'flutter/lib/desktop/pages/desktop_setting_page.dart',
+                      'flutter/lib/desktop/pages/install_page.dart',
+                      'flutter/lib/mobile/pages/settings_page.dart',
+                      'flutter/lib/mobile/pages/connection_page.dart']
+          for p in ui_files:
+              try:
+                  t = open(p, encoding='utf-8').read()
+              except FileNotFoundError:
+                  continue
+              cnt = t.count('https://rustdesk.com') + t.count('https://github.com/rustdesk')
+              if cnt:
+                  t = t.replace('https://github.com/rustdesk/rustdesk', 'https://www.zowinda.com')
+                  t = t.replace('https://rustdesk.com', 'https://www.zowinda.com')
+                  open(p, 'w', encoding='utf-8').write(t)
+              print('  official links replaced:', p, cnt)
           for line in s2.splitlines():
               if 'pub const' in line and ('RENDEZVOUS_SERVERS' in line or 'RS_PUB_KEY' in line):
                   print(' ', line.strip())
