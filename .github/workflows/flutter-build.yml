@@ -271,6 +271,29 @@ jobs:
           s14 = s14.replace('let caption = "RustDesk Output"', 'let caption = "ZowinDesk Output"')
           open(p14, 'w', encoding='utf-8').write(s14)
           print('windows.rs caption patched:', '"ZowinDesk Output"' in s14)
+          # 12. Portable packer: a plain double-click ALWAYS opens the install page.
+          #     Stock behaviour only does this when the exe name ends with "install.exe";
+          #     WeChat/QQ/browser downloads may append "(1)" or users rename the file,
+          #     which silently falls back to the un-installed main window (UAC warning).
+          #     Keep Quick Support builds on their dedicated no-install path.
+          p15 = 'libs/portable/src/main.rs'
+          s15 = open(p15, encoding='utf-8').read()
+          old15 = 'let click_setup = args.is_empty() && arg_exe.to_lowercase().ends_with("install.exe");'
+          new15 = ('// ZowinDesk: a plain double-click always opens the install page,\n'
+                   '    // independent of the downloaded file name.\n'
+                   '    let click_setup = args.is_empty();')
+          assert old15 in s15, 'portable main.rs click_setup pattern not found'
+          s15 = s15.replace(old15, new15, 1)
+          old15b = ('        if click_setup {\n'
+                    '            args = vec!["--install".to_owned()];\n'
+                    '        } else if quick_support {')
+          new15b = ('        if click_setup && !quick_support {\n'
+                    '            args = vec!["--install".to_owned()];\n'
+                    '        } else if quick_support {')
+          assert old15b in s15, 'portable main.rs install branch not found'
+          s15 = s15.replace(old15b, new15b, 1)
+          open(p15, 'w', encoding='utf-8').write(s15)
+          print('portable packer always-install patched OK')
           for line in s2.splitlines():
               if 'pub const' in line and ('RENDEZVOUS_SERVERS' in line or 'RS_PUB_KEY' in line):
                   print(' ', line.strip())
