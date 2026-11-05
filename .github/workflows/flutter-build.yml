@@ -265,6 +265,12 @@ jobs:
                   t = t.replace('https://rustdesk.com', 'https://www.zowinda.com')
                   open(p, 'w', encoding='utf-8').write(t)
               print('  official links replaced:', p, cnt)
+          # 11. Installer console caption (visible if an install ever fails)
+          p14 = 'src/platform/windows.rs'
+          s14 = open(p14, encoding='utf-8').read()
+          s14 = s14.replace('let caption = "RustDesk Output"', 'let caption = "ZowinDesk Output"')
+          open(p14, 'w', encoding='utf-8').write(s14)
+          print('windows.rs caption patched:', '"ZowinDesk Output"' in s14)
           for line in s2.splitlines():
               if 'pub const' in line and ('RENDEZVOUS_SERVERS' in line or 'RS_PUB_KEY' in line):
                   print(' ', line.strip())
@@ -546,6 +552,11 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           sed -i '/dpiAware/d' res/manifest.xml
+          # ZowinDesk: the installer derives the main exe as <APP_NAME>.exe (ZowinDesk.exe).
+          # Official builds rely on Windows case-insensitivity (RustDesk.exe == rustdesk.exe),
+          # which breaks once APP_NAME is rebranded. Ship a same-content copy so that services,
+          # shortcuts, config import and run-after-install all resolve to a real file.
+          cp ./rustdesk/rustdesk.exe ./rustdesk/ZowinDesk.exe
           pushd ./libs/portable
           pip3 install -r requirements.txt
           python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
