@@ -140,20 +140,81 @@ jobs:
         run: |
           python3 - <<'EOF'
           import re
-          # 1. Server config + APP_NAME (hbb_common config.rs)
+          # 1. Server config + APP_NAME + runtime-decoded endpoints (hbb_common config.rs)
           p = 'libs/hbb_common/src/config.rs'
           s = open(p, encoding='utf-8').read()
-          s2 = re.sub(r'pub const RENDEZVOUS_SERVERS[^;]*;',
-                      'pub const RENDEZVOUS_SERVERS: &[&str] = &["43.139.157.84"];', s)
-          s2 = re.sub(r'pub const RS_PUB_KEY[^;]*;',
-                      'pub const RS_PUB_KEY: &str = "PMEoK7kHVXLlHB4td8wk13ezTwKABynXQucZURTZtuo=";', s2)
+          zd_runtime = '\n'.join([
+              '// ZowinDesk: rendezvous host and public key are XOR-decoded at runtime,',
+              '// so no plaintext IP or key is embedded in the binary static data.',
+              'const ZD_XOR: u8 = 0x5A;',
+              'const ZD_SERVER_ENC: &[u8] = &[0x6e, 0x69, 0x74, 0x6b, 0x69, 0x63, 0x74, 0x6b, 0x6f, 0x6d, 0x74, 0x62, 0x6e];',
+              'const ZD_KEY_ENC: &[u8] = &[0x0a, 0x17, 0x1f, 0x35, 0x11, 0x6d, 0x31, 0x12, 0x0c, 0x02, 0x16, 0x36, 0x12, 0x18, 0x6e, 0x2e, 0x3e, 0x62, 0x2d, 0x31, 0x6b, 0x69, 0x3f, 0x20, 0x0e, 0x2d, 0x11, 0x1b, 0x18, 0x23, 0x34, 0x02, 0x0b, 0x2f, 0x39, 0x00, 0x0f, 0x08, 0x0e, 0x00, 0x2e, 0x2f, 0x35, 0x67];',
+              "fn zd_decode(enc: &[u8]) -> &'static str {",
+              '    let mut out: Vec<u8> = Vec::with_capacity(enc.len());',
+              '    for b in std::hint::black_box(enc).iter() {',
+              '        out.push(std::hint::black_box(*b) ^ ZD_XOR);',
+              '    }',
+              '    Box::leak(String::from_utf8(out).unwrap_or_default().into_boxed_str())',
+              '}',
+              'lazy_static::lazy_static! {',
+              "    pub static ref RENDEZVOUS_SERVERS: Vec<&'static str> = vec![zd_decode(ZD_SERVER_ENC)];",
+              '    pub static ref RS_PUB_KEY: String = zd_decode(ZD_KEY_ENC).to_owned();',
+              '}',
+          ])
+          s2, n1 = re.subn(r'pub const RENDEZVOUS_SERVERS[^;]*;',
+                           lambda m: zd_runtime.strip(), s, count=1)
+          assert n1 == 1, 'RENDEZVOUS_SERVERS definition not found'
+          s2, n2 = re.subn(r'pub const RS_PUB_KEY[^;]*;', '', s2, count=1)
+          assert n2 == 1, 'RS_PUB_KEY definition not found'
           s2 = s2.replace('RwLock::new("RustDesk".to_owned())',
                           'RwLock::new("ZowinDesk".to_owned())')
-          assert 'RENDEZVOUS_SERVERS: &[&str] = &["43.139.157.84"]' in s2, 'server patch failed'
-          assert 'RS_PUB_KEY: &str = "PMEoK7kHVXLlHB4td8wk13ezTwKABynXQucZURTZtuo="' in s2, 'key patch failed'
-          assert 'RwLock::new("ZowinDesk"' in s2, 'APP_NAME patch failed'
+          bs_old = 'pub static ref BUILTIN_SETTINGS: RwLock<HashMap<String, String>> = Default::default();'
+          bs_new = '\n'.join([
+              'pub static ref BUILTIN_SETTINGS: RwLock<HashMap<String, String>> = {',
+              '        let mut m = HashMap::new();',
+              '        m.insert("hide-network-settings".to_owned(), "Y".to_owned());',
+              '        m.insert("hide-server-settings".to_owned(), "Y".to_owned());',
+              '        RwLock::new(m)',
+              '    };',
+          ])
+          assert bs_old in s2, 'BUILTIN_SETTINGS definition not found'
+          s2 = s2.replace(bs_old, bs_new, 1)
+          assert 'zd_decode' in s2 and 'RwLock::new("ZowinDesk"' in s2, 'config patch failed'
+          assert '43.139.157.84' not in s2 and 'PMEoK7' not in s2, 'plaintext leaked into config.rs'
           open(p, 'w', encoding='utf-8').write(s2)
-          print('config.rs Patched OK')
+          print('config.rs Patched OK (runtime-decoded endpoints + hidden network settings)')
+
+          # 1b. Adapt the RS_PUB_KEY call sites to the lazy_static String type
+          for pf in ['src/client.rs', 'src/common.rs']:
+              t = open(pf, encoding='utf-8').read()
+              before = t.count('config::RS_PUB_KEY')
+              t2 = t.replace('config::RS_PUB_KEY.to_owned()',
+                             'config::RS_PUB_KEY.as_str().to_owned()')
+              t2, nr = re.subn(r'(?m)^(\s*)config::RS_PUB_KEY\s*$',
+                               r'\1config::RS_PUB_KEY.as_str()', t2)
+              assert before > 0, pf + ': no RS_PUB_KEY reference found'
+              assert 'config::RS_PUB_KEY.to_owned()' not in t2, pf + ': call site patch failed'
+              open(pf, 'w', encoding='utf-8').write(t2)
+              print('  ', pf, 'RS_PUB_KEY refs:', before, '| bare-line adapted:', nr)
+
+          # 1c. Force the official hide switches on, independent of any config file
+          pf = 'src/common.rs'
+          t = open(pf, encoding='utf-8').read()
+          gb_old = '\n'.join([
+              'pub fn get_builtin_option(key: &str) -> String {',
+              '    config::BUILTIN_SETTINGS',
+          ])
+          gb_new = '\n'.join([
+              'pub fn get_builtin_option(key: &str) -> String {',
+              '    if key == "hide-network-settings" || key == "hide-server-settings" {',
+              '        return "Y".to_owned();',
+              '    }',
+              '    config::BUILTIN_SETTINGS',
+          ])
+          assert gb_old in t, 'get_builtin_option body not found'
+          t = t.replace(gb_old, gb_new, 1)
+          open(pf, 'w', encoding='utf-8').write(t)
+          print('get_builtin_option patched OK (network + server settings hidden)')
           # 2. Runner.rc (exe properties: ProductName / FileDescription / CompanyName)
           p3 = 'flutter/windows/runner/Runner.rc'
           s3 = open(p3, encoding='utf-8').read()
