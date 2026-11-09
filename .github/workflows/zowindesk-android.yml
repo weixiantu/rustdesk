@@ -23,8 +23,8 @@ env:
   FLUTTER_VERSION: "3.24.5"
   RUST_VERSION: "1.75"
   VERSION: "1.5.1"
-  ZD_VERSION: "V13"
-  ZD_BUILD: "13"
+  ZD_VERSION: "V14"
+  ZD_BUILD: "14"
   UPSTREAM_APK: "https://github.com/rustdesk/rustdesk/releases/download/1.5.1/rustdesk-1.5.1-universal-signed.apk"
   JAVA_HOME: "/usr/lib/jvm/java-17-openjdk-amd64"
 

@@ -28,6 +28,11 @@ ZD_KEY = "PMEoK7kHVXLlHB4td8wk13ezTwKABynXQucZURTZtuo="
 ZD_VERSION_URL = "https://www.zowinda.com/zowindesk/version-android.json"
 ZD_APK_URL = "https://www.zowinda.com/zowindesk/ZowinDesk-android.apk"
 
+# V14：改用自有 applicationId，脱离官方包名在手机厂商风控库里的黑名单。
+# 注意：只改 applicationId；Kotlin 类包 / namespace / JNI 符号仍保持
+# com.carriez.flutter_hbb，否则 so 里的 JNI 静态符号会找不到导致崩溃。
+ZD_APP_ID = "com.zowinda.zowindesk"
+
 # ---------------------------------------------------------------- 基础工具 ----
 
 def read(p):
@@ -73,8 +78,8 @@ def add_imports(path, imports, label=""):
 # ------------------------------------------------------------ 新增 Dart 模块 ----
 
 ZD_VERSION_DART = r"""// ZowinDesk 自有版本号（安卓端）。发新版时只需把 kZdBuild +1、kZdVersion 改名。
-const int kZdBuild = 13;
-const String kZdVersion = 'V13';
+const int kZdBuild = 14;
+const String kZdVersion = 'V14';
 """
 
 ZD_CONFIG_DART = r"""// ZowinDesk 固定服务器配置。
@@ -340,11 +345,49 @@ class ZdUpgrade {
     status.value = '正在连接下载服务器…';
     final client = http.Client();
     _downloadClient = client;
+    File? outFile;
+    int received = 0;
+    int httpStatus = 0;
+    String contentType = '';
     try {
-      final req = http.Request('GET', Uri.parse(_downloadUrl()));
+      final url = Uri.parse(_downloadUrl());
+      // 明确的 UA：部分站点 WAF 会拦截 Dart 默认的 Dart/3.x (dart:io)。
+      final headers = <String, String>{
+        'User-Agent': 'ZowinDesk/$kZdBuild (Android; upgrade)',
+        'Accept':
+            'application/vnd.android.package-archive, application/octet-stream, */*',
+        'Cache-Control': 'no-cache',
+      };
+
+      // 预检：确认服务器给的是安装包，而不是 302 首页 / HTML 错误页。
+      // 预检本身失败不阻断下载（有些服务器不支持 HEAD）。
+      try {
+        final head = await client
+            .head(url, headers: headers)
+            .timeout(const Duration(seconds: 15));
+        httpStatus = head.statusCode;
+        contentType = (head.headers['content-type'] ?? '').toLowerCase();
+      } catch (_) {
+        httpStatus = 0;
+        contentType = '';
+      }
+      if (httpStatus >= 400) {
+        throw '下载地址返回 HTTP $httpStatus，请确认安装包已上传到服务器';
+      }
+      if (contentType.contains('text/html') ||
+          contentType.contains('application/json')) {
+        throw '下载地址返回的是网页（$contentType），请检查 download_url 配置';
+      }
+
+      final req = http.Request('GET', url)..headers.addAll(headers);
       final resp = await client.send(req).timeout(const Duration(seconds: 30));
-      if (resp.statusCode != 200) {
-        throw 'HTTP ${resp.statusCode}';
+      httpStatus = resp.statusCode;
+      contentType = (resp.headers['content-type'] ?? '').toLowerCase();
+      if (httpStatus != 200 && httpStatus != 206) {
+        throw '下载地址返回 HTTP $httpStatus';
+      }
+      if (contentType.contains('text/html')) {
+        throw '下载地址返回的是网页，不是安装包';
       }
       final expectedSize = _asInt(_info?['size']);
       final expectedSha =
@@ -359,50 +402,72 @@ class ZdUpgrade {
         dir = await getApplicationDocumentsDirectory();
       }
       final f = File('${dir.path}${Platform.pathSeparator}ZowinDesk-android.apk');
+      outFile = f;
       _localPath = f.path;
       if (await f.exists()) await f.delete();
 
       final sink = f.openWrite();
-      int received = 0;
-      await sink.addStream(resp.stream
-          .timeout(const Duration(seconds: 45))
-          .map((List<int> chunk) {
-        if (_cancelled) throw '用户已取消';
-        received += chunk.length;
-        if (total > 0) {
-          progress.value = (received / total).clamp(0.0, 1.0).toDouble();
+      bool closed = false;
+      try {
+        await sink.addStream(resp.stream
+            .timeout(const Duration(seconds: 90))
+            .map((List<int> chunk) {
+          if (_cancelled) throw '用户已取消';
+          received += chunk.length;
+          if (total > 0) {
+            progress.value = (received / total).clamp(0.0, 1.0).toDouble();
+          }
+          status.value =
+              '正在下载 ${(received / 1048576).toStringAsFixed(1)} MB' +
+                  (total > 0
+                      ? ' / ${(total / 1048576).toStringAsFixed(1)} MB'
+                      : '');
+          return chunk;
+        }));
+        await sink.flush();
+        await sink.close();
+        closed = true;
+      } finally {
+        if (!closed) {
+          try { await sink.close(); } catch (_) {}
         }
-        status.value = '正在下载 ${(received / 1048576).toStringAsFixed(1)} MB' +
-            (total > 0
-                ? ' / ${(total / 1048576).toStringAsFixed(1)} MB'
-                : '');
-        return chunk;
-      }));
-      await sink.flush();
-      await sink.close();
+      }
       if (_cancelled) throw '用户已取消';
 
       // 校验 1：文件大小（清单填了 size 才校验）
       final actual = await f.length();
       if (expectedSize > 0 && actual != expectedSize) {
-        throw '文件大小不符（$actual / $expectedSize）';
+        throw '文件大小不符（收到 $actual 字节，应为 $expectedSize）';
       }
-      // 校验 2：APK 是 ZIP，头两字节必须是 PK，防止把 404 页面当安装包
+      // 校验 2：ZIP 头 + 尾部 EOCD，能区分「网页」与「下载到一半的 APK」
       final raf = await f.open();
-      final List<int> head = <int>[];
       try {
-        head.addAll(await raf.read(2));
+        final head = await raf.read(2);
+        if (head.length < 2 || head[0] != 0x50 || head[1] != 0x4B) {
+          throw '下载内容不是有效的安装包（文件头不是 APK）';
+        }
+        final tailLen = actual < 65557 ? actual : 65557;
+        await raf.setPosition(actual - tailLen);
+        final tail = await raf.read(tailLen);
+        bool eocd = false;
+        for (int i = 0; i + 4 <= tail.length; i++) {
+          if (tail[i] == 0x50 && tail[i + 1] == 0x4B &&
+              tail[i + 2] == 0x05 && tail[i + 3] == 0x06) {
+            eocd = true;
+            break;
+          }
+        }
+        if (!eocd) throw '安装包下载不完整（ZIP 结尾缺失），请重试或手动下载';
       } finally {
         await raf.close();
       }
-      if (head.length < 2 || head[0] != 0x50 || head[1] != 0x4B) {
-        throw '下载内容不是有效的安装包';
-      }
-      // 校验 3：SHA256（清单填了 sha256 才校验；HTTPS 已保证传输完整性）
+      // 校验 3：SHA256（流式，避免把 79MB 一次读进内存）
       if (expectedSha.isNotEmpty) {
         status.value = '正在校验安装包…';
-        final hex = sha256.convert(await f.readAsBytes()).toString();
-        if (hex != expectedSha) throw '安装包校验失败';
+        final hex = await _sha256File(f);
+        if (hex != expectedSha) {
+          throw '安装包校验失败，服务器上的文件可能未更新或下载不完整';
+        }
       }
 
       status.value = '下载完成，正在启动安装…';
@@ -411,18 +476,40 @@ class ZdUpgrade {
       await _launchInstaller(f);
       phase.value = 2;
       status.value = '安装界面已打开，请在系统提示中完成安装。';
+      outFile = null;  // 成功，不要在失败清理里删掉它
     } catch (e) {
+      final bad = outFile;
+      if (bad != null) {
+        try { if (await bad.exists()) await bad.delete(); } catch (_) {}
+      }
       if (_cancelled) {
         // 用户主动关闭弹窗：不提示失败、不拉起安装界面，安静退出。
         phase.value = 0;
         return;
       }
       phase.value = 3;
-      status.value = '下载或启动失败：$e\n安装包已保存到：$_localPath';
+      status.value = '下载或启动失败：$e\n'
+          '诊断：HTTP $httpStatus / ${contentType.isEmpty ? "未知类型" : contentType} / '
+          '已收到 $received 字节\n'
+          '可点「手动下载」用浏览器打开，或稍后重试。';
     } finally {
       _downloadClient = null;
       client.close();
     }
+  }
+
+  /// 流式计算 SHA256，避免大 APK 一次性占满内存。
+  static Future<String> _sha256File(File f) async {
+    String result = '';
+    final sink = ChunkedConversionSink<Digest>.withCallback((values) {
+      if (values.isNotEmpty) result = values.last.toString();
+    });
+    final input = sha256.startChunkedConversion(sink);
+    await for (final chunk in f.openRead()) {
+      input.add(chunk);
+    }
+    input.close();
+    return result;
   }
 
   /// 优先用原生 FileProvider 拉起系统安装界面；
@@ -468,7 +555,7 @@ ZD_INSTALL_CHANNEL_KT = """
                         val apkFile = File(apkPath)
                         val apkUri = androidx.core.content.FileProvider.getUriForFile(
                             this,
-                            "com.carriez.flutter_hbb.zdfileprovider",
+                            "com.zowinda.zowindesk.zdfileprovider",
                             apkFile
                         )
                         val installIntent = Intent(Intent.ACTION_VIEW).apply {
@@ -490,7 +577,7 @@ ZD_INSTALL_CHANNEL_KT = """
 MANIFEST_PROVIDER = """
         <provider
             android:name=".ZdFileProvider"
-            android:authorities="com.carriez.flutter_hbb.zdfileprovider"
+            android:authorities="com.zowinda.zowindesk.zdfileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
@@ -562,7 +649,13 @@ rep(kotlin_dir + "MainActivity.kt",
 write(kotlin_dir + "ZdFileProvider.kt", ZD_FILE_PROVIDER_KT)
 print("  OK new ZdFileProvider.kt")
 
-# --- 5. build.gradle：显式指定 PKCS12 密钥库类型 ---
+# --- 5. build.gradle：自有 applicationId + PKCS12 密钥库类型 ---
+# 只改 applicationId；namespace / Kotlin 类包 / JNI 符号保持不变。
+rep("flutter/android/app/build.gradle",
+    '        applicationId "com.carriez.flutter_hbb"',
+    '        applicationId "' + ZD_APP_ID + '"',
+    1, "applicationId -> ZowinDesk")
+
 rep("flutter/android/app/build.gradle",
     "      storePassword keystoreProperties['storePassword']\n",
     "      storePassword keystoreProperties['storePassword']\n"
@@ -605,8 +698,19 @@ subprojects {
 """)
 print("  OK disable plugin lintVital                   build.gradle")
 
-# --- 6. common.dart：去掉 Powered by 官网链接，换 Logo ---
+# --- 6. common.dart：全局品牌过滤 + 去掉 Powered by 官网链接，换 Logo ---
 common = "flutter/lib/common.dart"
+
+# Rust 层的中文文案（src/lang/cn.rs）编译在官方 librustdesk.so 里，无法重编，
+# 但所有 Dart UI 文案都要经过这个全局 translate()。在出口统一替换品牌名，
+# 一次覆盖「验证 RustDesk 密码」「正在接入 RustDesk 网络」等全部残留。
+rep(common,
+    "  return platformFFI.translate(name, localeName);\n",
+    "  return platformFFI.translate(name, localeName)\n"
+    "      .replaceAll('RustDesk', 'ZowinDesk')\n"
+    "      .replaceAll('RUSTDESK', 'ZOWINDESK');\n",
+    1, "translate brand filter")
+
 rep_re(common,
        r"Widget loadPowered\(BuildContext context\) \{.*?\n\}\n\nconst _kDefaultLogoAsset",
        "Widget loadPowered(BuildContext context) => const SizedBox.shrink();\n\n"
@@ -624,6 +728,12 @@ rep(common, "Widget loadLogo() => const _Logo();",
       ],
     );""", 1, "ZowinDesk logo")
 
+# 用户实测的「验证密码」界面单独钉死，不依赖翻译表。
+rep("flutter/lib/common/widgets/dialog.dart",
+    "descWidget(translate('verify_rustdesk_password_tip')),",
+    "descWidget('请验证 ZowinDesk 密码'),",
+    1, "password dialog brand")
+
 # --- 7. 移动端设置页 ---
 settings = "flutter/lib/mobile/pages/settings_page.dart"
 add_imports(settings, ["import '../../zd_version.dart';"], "settings imports")
@@ -635,9 +745,9 @@ rep_re(settings,
        r"Text\('rustdesk\.com',\s*style: TextStyle\(\s*decoration: TextDecoration\.underline,\s*\)\)",
        "Text('ZowinDesk')", 2, "remove rustdesk.com text")
 rep(settings, 'translate("Version: ") + version',
-    'translate("Version: ") + kZdVersion', 1, "version = V13")
+    'translate("Version: ") + kZdVersion', 1, "version = V14")
 rep(settings, "Text('Version: $version')", "Text('Version: $kZdVersion')",
-    1, "about version = V13")
+    1, "about version = V14")
 rep(settings, "Text(translate('About RustDesk'))",
     "const Text('关于 ZowinDesk')", 1, "about title")
 rep_re(settings,
@@ -693,10 +803,16 @@ rep(conn, "final url = 'https://rustdesk.com/download';",
 
 # --- 10. 最终自检 ---
 checks = [
+    ("flutter/lib/zd_version.dart", "kZdBuild = 14"),
     ("flutter/lib/zd_upgrade.dart", "kZdBuild"),
     ("flutter/lib/zd_upgrade.dart", "version-android.json"),
+    ("flutter/lib/zd_upgrade.dart", "ZowinDesk/$kZdBuild (Android; upgrade)"),
+    ("flutter/lib/zd_upgrade.dart", "ChunkedConversionSink<Digest>"),
     ("flutter/lib/zd_config.dart", ZD_SERVER),
     ("flutter/lib/zd_config.dart", ZD_KEY),
+    ("flutter/lib/common.dart", "replaceAll('RustDesk', 'ZowinDesk')"),
+    ("flutter/lib/common/widgets/dialog.dart", "请验证 ZowinDesk 密码"),
+    ("flutter/android/app/build.gradle", ZD_APP_ID),
     ("flutter/lib/mobile/pages/settings_page.dart", "_hideServer = true;"),
     ("flutter/lib/mobile/pages/settings_page.dart", "kZdVersion"),
     ("flutter/lib/mobile/pages/connection_page.dart", "ZdUpgrade.onConnectAttempt()"),
