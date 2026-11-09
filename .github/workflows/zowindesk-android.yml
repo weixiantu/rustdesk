@@ -147,6 +147,16 @@ jobs:
             echo "-- $abi"; ls -l "$dst"
           done
 
+      # 官方 Android CI 会把 Gradle JVM 从 1g 调到 2g；universal 三架构 + R8
+      # 需要更多内存，这里一次给足，避免 minifyReleaseWithR8 Java heap space。
+      - name: Tune Gradle memory
+        run: |
+          set -e
+          sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8/g' \
+            flutter/android/gradle.properties
+          printf 'org.gradle.workers.max=2\norg.gradle.parallel=false\n' >> flutter/android/gradle.properties
+          cat flutter/android/gradle.properties
+
       - name: Flutter pub get
         run: |
           cd flutter
