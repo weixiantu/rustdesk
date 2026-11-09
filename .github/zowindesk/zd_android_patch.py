@@ -569,6 +569,30 @@ rep("flutter/android/app/build.gradle",
     "      storeType \"PKCS12\"\n",
     1, "keystore storeType")
 
+# release 打包禁用 R8 / lintVital：universal 三架构下这两个任务会吃满 JVM 堆，
+# 且对自建分发的 APK 没有收益（不做代码混淆、不跑发布前静态检查）。
+rep("flutter/android/app/build.gradle",
+    "    buildTypes {\n        release {\n",
+    "    lintOptions {\n"
+    "        checkReleaseBuilds false\n"
+    "        abortOnError false\n"
+    "    }\n\n"
+    "    buildTypes {\n        release {\n"
+    "            minifyEnabled false  // ZowinDesk: skip R8 to keep CI memory low\n",
+    1, "disable R8 / lintVital")
+
+root_gradle = "flutter/android/build.gradle"
+write(root_gradle, read(root_gradle) + """
+// ZowinDesk: release 构建不跑插件模块的 lintVital（避免 Java heap space）。
+subprojects {
+    project.plugins.withId('com.android.library') {
+        project.android.lintOptions.checkReleaseBuilds = false
+        project.android.lintOptions.abortOnError = false
+    }
+}
+""")
+print("  OK disable plugin lintVital                   build.gradle")
+
 # --- 6. common.dart：去掉 Powered by 官网链接，换 Logo ---
 common = "flutter/lib/common.dart"
 rep_re(common,
