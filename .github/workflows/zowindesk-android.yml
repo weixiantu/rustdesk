@@ -1,0 +1,190 @@
+name: Build ZowinDesk Android (Flutter)
+
+# 独立的安卓构建流水线，不影响已发布的 Windows 构建。
+# 思路：复用官方 1.5.1 Release 里已编译好的 librustdesk.so，
+#       跳过 NDK / vcpkg 交叉编译，只重编 Flutter(Dart AOT) + Android 壳。
+#       全部 ZowinDesk 定制在构建期由 .github/zowindesk/zd_android_patch.py 注入。
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: 'APK 架构（universal 通吃 arm64 / armv7 / x64）'
+        required: true
+        default: 'universal'
+        type: choice
+        options:
+          - universal
+          - arm64
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+  RUST_VERSION: "1.75"
+  VERSION: "1.5.1"
+  ZD_VERSION: "V13"
+  ZD_BUILD: "13"
+  UPSTREAM_APK: "https://github.com/rustdesk/rustdesk/releases/download/1.5.1/rustdesk-1.5.1-universal-signed.apk"
+  JAVA_HOME: "/usr/lib/jvm/java-17-openjdk-amd64"
+
+jobs:
+  generate-bridge:
+    uses: ./.github/workflows/bridge.yml
+
+  build-zowindesk-android:
+    needs: [generate-bridge]
+    name: Build ZowinDesk Android APK
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake curl git g++ libclang-dev libunwind-dev llvm-dev nasm \
+            ninja-build pkg-config unzip wget zip openjdk-17-jdk-headless
+
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Patch Flutter 3.24.5 dropdown menu
+        run: |
+          cd "$(dirname "$(dirname "$(which flutter)")")"
+          git apply "$GITHUB_WORKSPACE/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+
+      # flutter/android/app/build.gradle 在配置阶段会调用 cargo metadata，
+      # 因此仍需 Rust 工具链（只解析依赖，不做 NDK 交叉编译）。
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Restore bridge files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bridge-artifact
+          path: ./
+
+      - name: Ensure Android SDK 36
+        run: |
+          set -e
+          if [ -z "$ANDROID_HOME" ]; then
+            echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+            export ANDROID_HOME=/usr/local/lib/android/sdk
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          if [ ! -d "$ANDROID_HOME/platforms/android-36" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+          fi
+          ls "$ANDROID_HOME/build-tools" | sort -V | tail -3
+
+      # 固定的自有 release keystore（GitHub Actions Secrets），保证覆盖升级。
+      - name: Write fixed release keystore
+        env:
+          KS_B64: ${{ secrets.ZD_ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ZD_ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ZD_ANDROID_KEY_ALIAS }}
+        run: |
+          set -e
+          test -n "$KS_B64" && test -n "$KS_PASS" && test -n "$KS_ALIAS"
+          printf '%s' "$KS_B64" | base64 -d > flutter/android/app/zowindesk-release.p12
+          cat > flutter/android/key.properties <<EOF
+          storeFile=zowindesk-release.p12
+          storePassword=$KS_PASS
+          keyAlias=$KS_ALIAS
+          keyPassword=$KS_PASS
+          EOF
+          ls -l flutter/android/app/zowindesk-release.p12
+
+      - name: Apply ZowinDesk Android patches
+        run: |
+          set -e
+          python3 .github/zowindesk/zd_android_patch.py .github/zowindesk/zd_icons.json
+
+      - name: Download official 1.5.1 APK and extract prebuilt Rust library
+        run: |
+          set -e
+          curl -fL --retry 3 --retry-delay 5 -o /tmp/upstream.apk "$UPSTREAM_APK"
+          ls -l /tmp/upstream.apk
+          unzip -l /tmp/upstream.apk | grep -E 'lib/.*/(librustdesk|libc\+\+_shared)\.so' | head -20
+          rm -rf /tmp/upx && mkdir -p /tmp/upx
+          (cd /tmp/upx && unzip -q -o /tmp/upstream.apk 'lib/*')
+          if [ "${{ inputs.abi }}" = "arm64" ]; then
+            ABI_LIST="arm64-v8a"
+          else
+            ABI_LIST="arm64-v8a armeabi-v7a x86_64"
+          fi
+          for abi in $ABI_LIST; do
+            test -f "/tmp/upx/lib/$abi/librustdesk.so" || {
+              echo "::error::missing librustdesk.so for $abi"; exit 1; }
+            dst="flutter/android/app/src/main/jniLibs/$abi"
+            mkdir -p "$dst"
+            cp "/tmp/upx/lib/$abi/librustdesk.so" "$dst/"
+            if [ -f "/tmp/upx/lib/$abi/libc++_shared.so" ]; then
+              cp "/tmp/upx/lib/$abi/libc++_shared.so" "$dst/"
+            fi
+            echo "-- $abi"; ls -l "$dst"
+          done
+
+      - name: Flutter pub get
+        run: |
+          cd flutter
+          flutter pub get
+
+      - name: Build signed APK
+        run: |
+          set -e
+          if [ "${{ inputs.abi }}" = "arm64" ]; then
+            TP="android-arm64"
+          else
+            TP="android-arm64,android-arm,android-x64"
+          fi
+          cd flutter
+          flutter build apk --release \
+            --build-name="$ZD_VERSION" --build-number="$ZD_BUILD" \
+            --target-platform "$TP"
+          cd ..
+          test -f flutter/build/app/outputs/flutter-apk/app-release.apk
+          mv flutter/build/app/outputs/flutter-apk/app-release.apk \
+             "ZowinDesk-android-${ZD_VERSION}-${{ inputs.abi }}.apk"
+          ls -l ZowinDesk-android-*.apk
+
+      - name: Verify APK
+        run: |
+          set -e
+          APK=$(ls ZowinDesk-android-*.apk | head -1)
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          echo "== signing certificate =="
+          "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs "$APK" | head -12
+          echo "== packaged native libs / launcher icon =="
+          unzip -l "$APK" | grep -E 'libapp\.so|librustdesk\.so|ic_launcher\.png' | head -12
+          echo "== sha256 / size =="
+          sha256sum "$APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ZowinDesk-android-${{ env.ZD_VERSION }}
+          path: ZowinDesk-android-*.apk
+          if-no-files-found: error
