@@ -569,17 +569,29 @@ rep("flutter/android/app/build.gradle",
     "      storeType \"PKCS12\"\n",
     1, "keystore storeType")
 
-# release 打包禁用 R8 / lintVital：universal 三架构下这两个任务会吃满 JVM 堆，
-# 且对自建分发的 APK 没有收益（不做代码混淆、不跑发布前静态检查）。
+# release 打包禁用 lintVital：universal 三架构下它会吃满 JVM 堆，
+# 且对自建分发的 APK 没有收益（不跑发布前静态检查）。
 rep("flutter/android/app/build.gradle",
     "    buildTypes {\n        release {\n",
     "    lintOptions {\n"
     "        checkReleaseBuilds false\n"
     "        abortOnError false\n"
     "    }\n\n"
-    "    buildTypes {\n        release {\n"
-    "            minifyEnabled false  // ZowinDesk: skip R8 to keep CI memory low\n",
-    1, "disable R8 / lintVital")
+    "    buildTypes {\n        release {\n",
+    1, "disable lintVital")
+
+# Flutter 的 Gradle 插件会在 release 里打开 shrinkResources=true，
+# 它要求 minifyEnabled=true（即必须跑 R8）。三架构 Flutter App 跑 R8 会 OOM，
+# 因此在配置阶段最后把两者一起关掉（放在文件末尾，晚于 Flutter 插件的设置）。
+app_gradle = "flutter/android/app/build.gradle"
+write(app_gradle, read(app_gradle) + """
+// ZowinDesk: skip R8 / resource shrinking for the 3-ABI release build.
+afterEvaluate {
+    android.buildTypes.release.minifyEnabled = false
+    android.buildTypes.release.shrinkResources = false
+}
+""")
+print("  OK disable R8 + shrinkResources               app/build.gradle")
 
 root_gradle = "flutter/android/build.gradle"
 write(root_gradle, read(root_gradle) + """
