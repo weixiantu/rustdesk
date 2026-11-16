@@ -154,6 +154,8 @@ jobs:
       - name: Stamp ZowinDesk release version into the app bundle
         run: |
           APP="flutter/build/macos/Build/Products/Release/ZowinDesk.app"
+          # 兜底：若构建产物仍叫 RustDesk.app（旧命名路径），重命名后再盖章。
+          test -d "$APP" || mv "flutter/build/macos/Build/Products/Release/RustDesk.app" "$APP" 2>/dev/null || true
           test -d "$APP" || { echo "ZowinDesk.app not found"; ls flutter/build/macos/Build/Products/Release/; exit 1; }
           # pubspec 版本号保持 1.5.1（协议版本比较用），对外版本号写 V14。
           plutil -replace CFBundleShortVersionString -string "${{ env.ZD_VERSION }}" "$APP/Contents/Info.plist"

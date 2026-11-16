@@ -185,6 +185,14 @@ def patch_macos_project():
           "bundle id intentionally unchanged (service/permission compatibility)")
     write(p, t)
 
+    # 8a2. AppInfo.xcconfig：Flutter 模板实际决定 .app 名称的文件（CI 实测以它为准，
+    #      pbxproj target 级 PRODUCT_NAME 被覆盖），一并改为 ZowinDesk。
+    p = "flutter/macos/Runner/Configs/AppInfo.xcconfig"
+    t = read(p)
+    check(t.count("PRODUCT_NAME = RustDesk") == 1, "AppInfo.xcconfig PRODUCT_NAME anchor found")
+    t = t.replace("PRODUCT_NAME = RustDesk", "PRODUCT_NAME = ZowinDesk")
+    write(p, t)
+
     # 8b. MainMenu.xib：菜单里的 APP_NAME 占位符（关于/隐藏/退出/主菜单/窗口标题）。
     p = "flutter/macos/Runner/Base.lproj/MainMenu.xib"
     t = read(p)
