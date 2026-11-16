@@ -193,6 +193,19 @@ def patch_macos_project():
     t = t.replace("PRODUCT_NAME = RustDesk", "PRODUCT_NAME = ZowinDesk")
     write(p, t)
 
+    # 8a3. build.py：flutter 流程拷贝 service 二进制到 app 包的路径硬编码
+    #      RustDesk.app（第 949 行）与 dmg 命令（第 952 行），PRODUCT_NAME 改为
+    #      ZowinDesk 后同步修正，否则 cp 报 Not a directory。
+    p = "build.py"
+    t = read(p)
+    check(t.count("./build/macos/Build/Products/Release/RustDesk.app") == 2,
+          "build.py RustDesk.app anchors found (2)")
+    t = t.replace("./build/macos/Build/Products/Release/RustDesk.app",
+                  "./build/macos/Build/Products/Release/ZowinDesk.app")
+    check("./build/macos/Build/Products/Release/ZowinDesk.app" in t,
+          "build.py service path -> ZowinDesk.app")
+    write(p, t)
+
     # 8b. MainMenu.xib：菜单里的 APP_NAME 占位符（关于/隐藏/退出/主菜单/窗口标题）。
     p = "flutter/macos/Runner/Base.lproj/MainMenu.xib"
     t = read(p)
