@@ -125,6 +125,13 @@ jobs:
       - name: Apply Flutter 3.44 source patches
         run: |
           # 与 bridge-artifact-flutter-3.44 的生成状态保持一致（pubspec/主题 API 差异）。
+          # BSD sed（macOS 自带）不支持 GNU 的 `sed -i` 无后缀写法，而补丁脚本内部
+          # 使用 GNU 语义。这里安装 GNU sed 并做一个仅本步骤生效的 sed shim；
+          # 工作流其余步骤仍使用 BSD 语法（sed -i ''），互不影响。
+          brew list gnu-sed >/dev/null 2>&1 || brew install gnu-sed
+          mkdir -p /tmp/gnubin
+          ln -sf "$(command -v gsed)" /tmp/gnubin/sed
+          export PATH="/tmp/gnubin:$PATH"
           bash .github/patches/apply_flutter_3.44_source_patches.sh
 
       - name: Show version information (Rust, cargo, Clang)
